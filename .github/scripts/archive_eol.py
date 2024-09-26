@@ -4,7 +4,11 @@ import subprocess
 import time
 
 import github
-from github.GithubException import RateLimitExceededException, UnknownObjectException
+from github.GithubException import (
+    RateLimitExceededException,
+    UnknownObjectException,
+    GithubException,
+)
 
 
 def ignore_ref(ref: str) -> bool:
@@ -61,6 +65,28 @@ def main() -> None:
         "org.freedesktop.LinuxAudio.Plugins.sfizz",
         "org.freedesktop.LinuxAudio.Plugins.x42Plugins",
         "org.freedesktop.LinuxAudio.Plugins.ZamPlugins",
+        "org.freedesktop.LinuxAudio.Plugins.gmsynth",
+        "org.freedesktop.LinuxAudio.Plugins.CAPS",
+        "org.freedesktop.LinuxAudio.Plugins.CAPS",
+        "org.freedesktop.LinuxAudio.Plugins.VL1Emulator",
+        "org.freedesktop.LinuxAudio.Plugins.ZynFusion",
+        "org.freedesktop.LinuxAudio.Plugins.CMT",
+        "org.freedesktop.LinuxAudio.Plugins.DrumGizmo",
+        "org.freedesktop.LinuxAudio.Plugins.TAP",
+        "org.freedesktop.LinuxAudio.Plugins.SoSynthLV2",
+        "org.freedesktop.LinuxAudio.Plugins.Surge",
+        "org.freedesktop.LinuxAudio.Plugins.DPF-Plugins",
+        "org.freedesktop.LinuxAudio.Plugins.DISTRHO-Ports",
+        "org.freedesktop.LinuxAudio.Plugins.MDA",
+        "org.freedesktop.LinuxAudio.Plugins.Ninjas2",
+        "org.freedesktop.LinuxAudio.Plugins.reMID-lv2",
+        "org.freedesktop.LinuxAudio.Plugins.swh",
+        "org.freedesktop.LinuxAudio.Plugins.GxPlugins",
+        "org.freedesktop.LinuxAudio.Plugins.KapitonovPluginsPack",
+        "org.freedesktop.LinuxAudio.Plugins.ArtyFX",
+        "org.freedesktop.LinuxAudio.Plugins.Sorcer",
+        "org.freedesktop.LinuxAudio.Plugins.ADLplug",
+        "org.freedesktop.LinuxAudio.Plugins.Fabla",
         # 1.6 branch is EOL
         "org.freedesktop.Sdk.Extension.golang",
         # 19.08, 20.08, 21.08 are EOL
@@ -96,11 +122,12 @@ def main() -> None:
         # 3-1.6, 3-18.08 is EOL
         "org.videolan.VLC.Plugin.fdkaac",
     }
-    # we need to get apps which are EOL on both supported arches
-    # as there are apps which are only EOL on one arch but maintained
-    # in another. This might miss some refs but LBYL!
-    stable = get_eol_refs("x86_64", "flathub") & get_eol_refs("aarch64", "flathub")
-    eols = list(stable - excludes)
+
+    stable = get_eol_refs("x86_64", "flathub") | get_eol_refs("aarch64", "flathub")
+    beta = get_eol_refs("x86_64", "flathub-beta") | get_eol_refs(
+        "aarch64", "flathub-beta"
+    )
+    eols = list((stable | beta) - excludes)
 
     if not eols:
         return
@@ -113,13 +140,30 @@ def main() -> None:
         refname = eols[count]
         try:
             repo = g.get_repo(f"flathub/{refname}")
-            if not repo.archived and repo.pushed_at < earliest:
-                print(
-                    "Archiving: {} Repo is in EOL list. Last push: {}, earlier than: {}".format(
-                        repo.html_url, repo.pushed_at.isoformat(), earliest.isoformat()
+            if not repo.archived:
+                try:
+                    default_branch = repo.default_branch
+                    branch = repo.get_branch(default_branch)
+                    last_commit = repo.get_commit(branch.commit.sha)
+                    last_commit_time = last_commit.commit.committer.date.astimezone(
+                        datetime.timezone.utc
                     )
-                )
-                repo.edit(archived=True)
+                except GithubException:
+                    last_commit_time = datetime.datetime.now(
+                        datetime.timezone.utc
+                    ) + datetime.timedelta(seconds=10)
+                    pass
+                if last_commit_time < earliest:
+                    print(
+                        "Archiving: {} Repo is in EOL list. Last push: {}, earlier than: {}".format(
+                            repo.html_url,
+                            last_commit_time.isoformat(),
+                            earliest.isoformat(),
+                        )
+                    )
+                    desc = "This repo is archived by Flathub as the app is EOL. If this was done in error, please open an issue at https://github.com/flathub/flathub/issues"
+                    repo.edit(description=desc)
+                    repo.edit(archived=True)
         except UnknownObjectException:
             pass
         except RateLimitExceededException:

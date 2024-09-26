@@ -11,7 +11,7 @@ git config --global user.email "sysadmin@flathub.org"
 mkdir flathub
 cd flathub || exit
 
-gh-ls-org flathub | parallel "git clone --depth 1 {}"
+gh repo list flathub --visibility public -L 8000 --json url --json isArchived --jq '.[] | select(.isArchived == false)|.url' | parallel "git clone --depth 1 {}"
 mapfile -t checker_apps < <( grep -rl -E 'extra-data|x-checker-data|\.AppImage' | cut -d/ -f1 | sort -u | shuf )
 
 for repo in "${checker_apps[@]}"; do
@@ -43,5 +43,5 @@ for repo in "${checker_apps[@]}"; do
     fi
 
     echo "==> checking ${repo}"
-    /app/flatpak-external-data-checker --verbose --update "${FEDC_OPTS[@]}" "$repo/$manifest"
+    /app/flatpak-external-data-checker --verbose --update "${FEDC_OPTS[@]}" "$repo/$manifest" || true
 done
